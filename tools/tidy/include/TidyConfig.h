@@ -38,6 +38,7 @@ public:
         std::vector<std::string> inputPortPrefix;
         std::vector<std::string> outputPortPrefix;
         std::vector<std::string> inoutPortPrefix;
+        bool ignoreVectorBitSelect;
     };
 
     /// Default TidyConfig constructor which will set the default check's configuration values
@@ -86,6 +87,7 @@ public:
             {"inputPortPrefix", joinVec(cfg.inputPortPrefix)},
             {"outputPortPrefix", joinVec(cfg.outputPortPrefix)},
             {"inoutPortPrefix", joinVec(cfg.inoutPortPrefix)},
+            {"ignoreVectorBitSelect", cfg.ignoreVectorBitSelect ? "true" : "false"},
         };
     }
 
@@ -173,6 +175,10 @@ private:
         }
         else if (configName == "inoutPortPrefix") {
             visit(checkConfigs.inoutPortPrefix);
+            return;
+        }
+        else if (configName == "ignoreVectorBitSelect") {
+            visit(checkConfigs.ignoreVectorBitSelect);
             return;
         }
         SLANG_THROW(std::invalid_argument(fmt::format("The check: {} does not exist", configName)));

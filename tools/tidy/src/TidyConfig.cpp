@@ -21,6 +21,7 @@ TidyConfig::TidyConfig() {
     checkConfigs.inputPortPrefix = {""};
     checkConfigs.outputPortPrefix = {""};
     checkConfigs.inoutPortPrefix = {""};
+    checkConfigs.ignoreVectorBitSelect = false;
 
     auto styleChecks = std::unordered_map<std::string, CheckOptions>();
     styleChecks.emplace("AlwaysCombNonBlocking", CheckOptions());
@@ -36,6 +37,7 @@ TidyConfig::TidyConfig() {
     styleChecks.emplace("GenerateNamed", CheckOptions());
     styleChecks.emplace("NoDotVarInPortConnection", CheckOptions());
     styleChecks.emplace("NoLegacyGenerate", CheckOptions());
+    styleChecks.emplace("NoVarsInCase", CheckOptions());
     checkKinds.insert({slang::TidyKind::Style, styleChecks});
 
     auto synthesisChecks = std::unordered_map<std::string, CheckOptions>();
