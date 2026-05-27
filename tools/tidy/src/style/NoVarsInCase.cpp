@@ -10,13 +10,14 @@
 #include "TidyDiags.h"
 
 #include "slang/ast/EvalContext.h"
+#include "slang/ast/Expression.h"
+#include "slang/ast/expressions/MiscExpressions.h"
 
 using namespace slang;
 using namespace slang::ast;
 
 namespace {
 
-// TODO: do we want canonical or not?
 struct MainVisitor : public TidyVisitor, ASTVisitor<MainVisitor, VisitFlags::StatementsCanonical> {
 
     Compilation& m_comp;
@@ -26,6 +27,12 @@ struct MainVisitor : public TidyVisitor, ASTVisitor<MainVisitor, VisitFlags::Sta
         TidyVisitor(diag), m_comp(comp),
         m_evalCtx(m_comp.createScriptScope(), EvalFlags::IsScript) {}
 
+    const Expression* removeImplicitCast(const Expression* expr) {
+        if (auto cvt = expr->as_if<ConversionExpression>(); cvt && cvt->isImplicit())
+            expr = &cvt->operand();
+        return expr;
+    }
+
     bool isConstant(const Expression* expr) {
         m_evalCtx.reset();
         expr->eval(m_evalCtx);
@@ -33,49 +40,37 @@ struct MainVisitor : public TidyVisitor, ASTVisitor<MainVisitor, VisitFlags::Sta
     }
 
     bool isBitConstant(const Expression* expr) {
-        if (auto cvt = expr->as_if<ConversionExpression>()) {
-            if (!cvt->isImplicit())
-                return false;
-            expr = &cvt->operand();
-        }
+        expr = removeImplicitCast(expr);
         auto integer = expr->as_if<IntegerLiteral>();
-        if (!integer)
-            return false;
-        if (integer->getEffectiveWidth() != 1)
-            return false;
-        return true;
+        return integer != nullptr && integer->getEffectiveWidth() == 1;
     }
 
     bool isBitAccess(const Expression* expr) {
-        if (auto cvt = expr->as_if<ConversionExpression>()) {
-            if (!cvt->isImplicit())
-                return false;
-            expr = &cvt->operand();
-        }
+        expr = removeImplicitCast(expr);
         auto selection = expr->as_if<ElementSelectExpression>();
-        if (!selection)
-            return false;
-        auto selector = selection->selector().as_if<IntegerLiteral>();
-        if (!selector)
-            return false;
-        return true; // assume we are selecting bit, otherwise we got syntax error
+        return selection != nullptr && isConstant(&selection->selector()) &&
+               removeImplicitCast(&selection->value())->as_if<NamedValueExpression>() != nullptr;
     }
 
     void handle(const CaseStatement& caseStmnt) {
-        const auto& checkConfig = config.getCheckConfigs();
-
-        if (checkConfig.ignoreVectorBitSelect && isBitConstant(&caseStmnt.expr)) {
-            for (const auto& item : caseStmnt.items)
-                for (const auto& value : item.expressions)
-                    if (!isBitAccess(value))
-                        diags.add(diag::NoVarsInCase, value->sourceRange);
+        if (skip(sourceManager->getFileName(caseStmnt.sourceRange.start())))
             return;
+        const auto& checkConfig = config.getCheckConfigs();
+        bool isBitSelect = checkConfig.ignoreVectorBitSelect && isBitConstant(&caseStmnt.expr);
+        for (const auto& item : caseStmnt.items) {
+            for (const auto& value : item.expressions) {
+                if (isBitSelect) {
+                    if (!isBitAccess(value))
+                        diags.add(diag::NoVarsInCase, value->sourceRange)
+                            << "not a constant bit access used in bit-select case statement"sv;
+                }
+                else {
+                    if (!isConstant(value))
+                        diags.add(diag::NoVarsInCase, value->sourceRange)
+                            << "non-constant case label"sv;
+                }
+            }
         }
-
-        for (const auto& item : caseStmnt.items)
-            for (const auto& value : item.expressions)
-                if (!isConstant(value))
-                    diags.add(diag::NoVarsInCase, value->sourceRange);
     }
 };
 
@@ -88,6 +83,8 @@ public:
         TidyCheck(kind, sev) {}
 
     bool check(const ast::RootSymbol& root, const analysis::AnalysisManager&) override {
+        auto& comp = root.getCompilation();
+
         MainVisitor visitor(diagnostics, root.getCompilation());
         root.visit(visitor);
         return diagnostics.empty();
@@ -95,9 +92,7 @@ public:
 
     DiagCode diagCode() const override { return diag::NoVarsInCase; }
     DiagnosticSeverity diagDefaultSeverity() const override { return DiagnosticSeverity::Warning; }
-    std::string diagString() const override {
-        return "use of non-constant value in case condition";
-    }
+    std::string diagString() const override { return "{}"; }
     std::string name() const override { return "NoVarsInCase"; }
     std::string description() const override { return shortDescription(); }
     std::string shortDescription() const override {
