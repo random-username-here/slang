@@ -35,8 +35,7 @@ struct MainVisitor : public TidyVisitor, ASTVisitor<MainVisitor, VisitFlags::Sta
 
     bool isConstant(const Expression* expr) {
         m_evalCtx.reset();
-        expr->eval(m_evalCtx);
-        return m_evalCtx.getAllDiagnostics().empty();
+        return !expr->eval(m_evalCtx).bad();
     }
 
     bool isBitConstant(const Expression* expr) {
@@ -83,8 +82,6 @@ public:
         TidyCheck(kind, sev) {}
 
     bool check(const ast::RootSymbol& root, const analysis::AnalysisManager&) override {
-        auto& comp = root.getCompilation();
-
         MainVisitor visitor(diagnostics, root.getCompilation());
         root.visit(visitor);
         return diagnostics.empty();
